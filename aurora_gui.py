@@ -1,9 +1,15 @@
+import re
 import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
+from tkinter.scrolledtext import ScrolledText
 
+import matplotlib.dates as mdates
+import numpy as np
 import requests
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.figure import Figure
 
 import aurora
@@ -24,6 +30,14 @@ KOLOR_KP_AKTYWNIE = "#eda100"
 KOLOR_KP_BURZA = "#eb6834"
 KOLOR_KP_SILNA_BURZA = "#e34948"
 
+# rozbiezna (diverging) skala dla Bz: poludnie (ujemny, sprzyja zorzy) -> szary (blisko zera) -> polnoc
+KOLOR_BZ_POLUDNIE = "#e34948"
+KOLOR_BZ_NEUTRALNY = "#e1e0d9"
+KOLOR_BZ_POLNOC = "#2a78d6"
+MAPA_KOLOROW_BZ = LinearSegmentedColormap.from_list(
+    "bz_rozbiezny", [KOLOR_BZ_POLUDNIE, KOLOR_BZ_NEUTRALNY, KOLOR_BZ_POLNOC]
+)
+
 
 def kolor_kp(kp: float) -> str:
     if kp >= 6:
@@ -33,6 +47,14 @@ def kolor_kp(kp: float) -> str:
     if kp >= 4:
         return KOLOR_KP_AKTYWNIE
     return KOLOR_KP_SPOKOJNIE
+
+
+def formatuj_wiadomosc(tekst: str) -> str:
+    """Zwija pojedyncze zlamania linii z biuletynow NOAA (ktore i tak lamia tekst
+    co kilka slow) w spacje, ale zachowuje przerwy miedzy akapitami (puste linie)."""
+    tekst = tekst.strip()
+    tekst = re.sub(r"\n\s*\n+", "\n\n", tekst)
+    return re.sub(r"(?<!\n)\n(?!\n)", " ", tekst)
 
 
 def pobierz_lokalizacje(nazwa: str) -> list:
@@ -80,14 +102,6 @@ class AuroraApp(tk.Tk):
         pasek.pack(side="right", fill="y")
         self.lista.pack(side="left", fill="x", expand=True)
         self.lista.bind("<<ListboxSelect>>", self._wybrano_z_listy)
-
-        ttk.Separator(lewy, orient="horizontal").pack(fill="x", pady=(0, 10))
-
-        ttk.Label(lewy, text="Alerty zorzowe / geomagnetyczne:", font=("Segoe UI", 10, "bold")).pack(
-            anchor="w"
-        )
-        self.etykieta_alerty = ttk.Label(lewy, justify="left", wraplength=230, font=("Segoe UI", 9))
-        self.etykieta_alerty.pack(anchor="w", fill="both", expand=True, pady=(5, 10))
 
         ttk.Separator(lewy, orient="horizontal").pack(fill="x", pady=(0, 10))
 
@@ -145,13 +159,15 @@ class AuroraApp(tk.Tk):
         self.wykres_kp.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
         ttk.Label(
-            kolumna_glowna, text="Top komórki siatki z najwyższą auroą (świat):", font=("Segoe UI", 11, "bold")
+            kolumna_glowna, text="Alerty zorzowe / geomagnetyczne:", font=("Segoe UI", 11, "bold")
         ).pack(anchor="w")
-
-        self.figura_top = Figure(figsize=(6.3, 2.6), dpi=90)
-        self.figura_top.patch.set_facecolor(KOLOR_TLA_WYKRESU)
-        self.wykres_top = FigureCanvasTkAgg(self.figura_top, master=kolumna_glowna)
-        self.wykres_top.get_tk_widget().pack(anchor="w", pady=(5, 15))
+        self.tekst_alerty = ScrolledText(
+            kolumna_glowna, wrap="word", height=14, width=68, font=("Segoe UI", 9),
+            padx=8, pady=8, borderwidth=1, relief="solid",
+        )
+        self.tekst_alerty.pack(anchor="w", pady=(5, 0))
+        self.tekst_alerty.tag_configure("naglowek", font=("Segoe UI", 9, "bold"))
+        self.tekst_alerty.configure(state="disabled")
 
         kolumna_boczna = ttk.Frame(prawy, padding=(20, 0, 0, 0))
         kolumna_boczna.pack(side="left", fill="y", anchor="n")
@@ -167,9 +183,11 @@ class AuroraApp(tk.Tk):
 
         ttk.Label(
             kolumna_boczna,
-            text="Pomarańczowe pole: Bz południowy (sprzyja zorzy)",
+            text="Kolor linii: czerwony = południowy (sprzyja zorzy), niebieski = północny — im intensywniej, tym silniejszy Bz",
             font=("Segoe UI", 8),
             foreground=KOLOR_OPISOW,
+            wraplength=380,
+            justify="left",
         ).pack(anchor="w", pady=(0, 10))
 
         self.etykieta_wiatr = ttk.Label(kolumna_boczna, justify="left", font=("Consolas", 9))
@@ -183,6 +201,15 @@ class AuroraApp(tk.Tk):
         self.figura_wiatr.patch.set_facecolor(KOLOR_TLA_WYKRESU)
         self.wykres_wiatr = FigureCanvasTkAgg(self.figura_wiatr, master=kolumna_boczna)
         self.wykres_wiatr.get_tk_widget().pack(anchor="w", pady=(5, 15))
+
+        ttk.Label(
+            kolumna_boczna, text="Top komórki siatki z najwyższą auroą (świat):", font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
+
+        self.figura_top = Figure(figsize=(4.2, 2.2), dpi=90)
+        self.figura_top.patch.set_facecolor(KOLOR_TLA_WYKRESU)
+        self.wykres_top = FigureCanvasTkAgg(self.figura_top, master=kolumna_boczna)
+        self.wykres_top.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
     def _szukaj_lokalizacji(self):
         nazwa = self.wpis_miasta.get().strip()
@@ -333,19 +360,25 @@ class AuroraApp(tk.Tk):
         self._aktualizuj_tekst_wiatru(dane_bz, dane_wiatr)
         self._rysuj_wiatr(dane_wiatr)
 
-        if not alerty:
-            self.etykieta_alerty.configure(text="Brak aktualnych alertów zorzowych lub geomagnetycznych.")
-        else:
-            linie = []
-            for alert in alerty[:5]:
-                issue = aurora.isoformat_utc(alert.get("issue_time"))
-                wiadomosc = alert["message"][:200]
-                if len(alert["message"]) > 200:
-                    wiadomosc += "..."
-                linie.append(f"{alert['event']} | {issue}\n{wiadomosc}")
-            self.etykieta_alerty.configure(text="\n\n".join(linie))
+        self._pokaz_alerty(alerty)
 
         self.status.set("Gotowe.")
+
+    def _pokaz_alerty(self, alerty: list):
+        self.tekst_alerty.configure(state="normal")
+        self.tekst_alerty.delete("1.0", "end")
+
+        if not alerty:
+            self.tekst_alerty.insert("end", "Brak aktualnych alertów zorzowych lub geomagnetycznych.")
+        else:
+            for i, alert in enumerate(alerty):
+                if i > 0:
+                    self.tekst_alerty.insert("end", "\n" + "─" * 60 + "\n\n")
+                issue = aurora.isoformat_utc(alert.get("issue_time"))
+                self.tekst_alerty.insert("end", f"{alert['event']} | {issue}\n", "naglowek")
+                self.tekst_alerty.insert("end", formatuj_wiadomosc(alert["message"]))
+
+        self.tekst_alerty.configure(state="disabled")
 
     def _rysuj_wskaznik(self, probability: float):
         self.figura_wskaznik.clear()
@@ -432,12 +465,27 @@ class AuroraApp(tk.Tk):
         czasy = [w["time"] for w in wpisy]
         bz = [w["bz"] for w in wpisy]
 
+        x_num = mdates.date2num(czasy)
+        zakres = max(5.0, max(abs(v) for v in bz))  # min. +-5 nT, zeby przy spokojnym Bz kolory nie "krzyczaly"
+        norm = Normalize(vmin=-zakres, vmax=zakres)
+
         ax.axhline(0, color=KOLOR_OSI, linewidth=1)
-        ax.fill_between(czasy, bz, 0, where=[v < 0 for v in bz], color=KOLOR_KP_BURZA, alpha=0.5, interpolate=True)
-        ax.plot(czasy, bz, color=KOLOR_TEKSTU, linewidth=1)
+
+        punkty = np.array([x_num, bz]).T.reshape(-1, 1, 2)
+        segmenty = np.concatenate([punkty[:-1], punkty[1:]], axis=1)
+        # kolor segmentu = wartosc Bz na jego poczatku; dodatnie (polnoc) -> niebieski,
+        # ujemne (poludnie, sprzyja zorzy) -> czerwony, tym intensywniej im wieksza wartosc bezwzgledna
+        lc = LineCollection(segmenty, cmap=MAPA_KOLOROW_BZ, norm=norm)
+        lc.set_array(np.array(bz[:-1]))
+        lc.set_linewidth(1.8)
+        ax.add_collection(lc)
+
+        ax.set_xlim(x_num.min(), x_num.max())
+        zapas = max(1.0, zakres * 0.15)
+        ax.set_ylim(min(bz) - zapas, max(bz) + zapas)
 
         krok = max(1, len(wpisy) // 5)
-        ax.set_xticks(czasy[::krok])
+        ax.set_xticks(x_num[::krok])
         ax.set_xticklabels([c.strftime("%H:%M") for c in czasy[::krok]], fontsize=7)
 
         ax.tick_params(axis="both", colors=KOLOR_OPISOW, labelsize=8)
