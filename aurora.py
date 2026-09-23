@@ -17,6 +17,7 @@ from urllib import error, request
 
 OVATION_URL = "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json"
 ALERTS_URL = "https://services.swpc.noaa.gov/products/alerts.json"
+KP_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"
 
 
 def fetch_json(url: str) -> Any:
@@ -269,6 +270,31 @@ def parse_alerts(payload: Any) -> List[dict]:
         )
 
     return alerts
+
+
+def parse_kp_index(payload: Any) -> List[dict]:
+    """Zwraca listę {'time': datetime, 'kp': float, 'observed': bool, 'scale': str|None}
+    z planetarnego indeksu Kp (dane obserwowane + prognoza NOAA SWPC)."""
+    wynik = []
+    if not isinstance(payload, list):
+        return wynik
+    for wpis in payload:
+        if not isinstance(wpis, dict):
+            continue
+        try:
+            czas = datetime.fromisoformat(wpis["time_tag"]).replace(tzinfo=timezone.utc)
+            kp = float(wpis["kp"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        wynik.append(
+            {
+                "time": czas,
+                "kp": kp,
+                "observed": wpis.get("observed") == "observed",
+                "scale": wpis.get("noaa_scale"),
+            }
+        )
+    return wynik
 
 
 def print_aurora_report(payload: Any, latitude: float, longitude: float, limit: int = 5) -> None:

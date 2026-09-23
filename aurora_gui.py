@@ -18,6 +18,22 @@ KOLOR_OPISOW = "#898781"
 KOLOR_TEKSTU = "#0b0b0b"
 KOLOR_TLA_WYKRESU = "#fcfcfb"
 
+# klasyczna skala kolorów indeksu Kp (konwencja NOAA: spokojnie -> burza)
+KOLOR_KP_SPOKOJNIE = "#008300"
+KOLOR_KP_AKTYWNIE = "#eda100"
+KOLOR_KP_BURZA = "#eb6834"
+KOLOR_KP_SILNA_BURZA = "#e34948"
+
+
+def kolor_kp(kp: float) -> str:
+    if kp >= 6:
+        return KOLOR_KP_SILNA_BURZA
+    if kp >= 5:
+        return KOLOR_KP_BURZA
+    if kp >= 4:
+        return KOLOR_KP_AKTYWNIE
+    return KOLOR_KP_SPOKOJNIE
+
 
 def pobierz_lokalizacje(nazwa: str) -> list:
     response = requests.get(
@@ -31,8 +47,8 @@ class AuroraApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Monitor zorzy polarnej - NOAA SWPC")
-        self.geometry("1050x760")
-        self.minsize(900, 650)
+        self.geometry("1100x980")
+        self.minsize(950, 850)
 
         self._numer_zapytania = 0
         self._lokalizacje = []
@@ -107,6 +123,15 @@ class AuroraApp(tk.Tk):
         self.figura_wskaznik.patch.set_facecolor(KOLOR_TLA_WYKRESU)
         self.wykres_wskaznik = FigureCanvasTkAgg(self.figura_wskaznik, master=prawy)
         self.wykres_wskaznik.get_tk_widget().pack(anchor="w", pady=(5, 15))
+
+        ttk.Label(
+            prawy, text="Indeks Kp (obserwowany + prognoza NOAA):", font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
+
+        self.figura_kp = Figure(figsize=(7.5, 2.6), dpi=90)
+        self.figura_kp.patch.set_facecolor(KOLOR_TLA_WYKRESU)
+        self.wykres_kp = FigureCanvasTkAgg(self.figura_kp, master=prawy)
+        self.wykres_kp.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
         ttk.Label(prawy, text="Top komórki siatki z najwyższą auroą (świat):", font=("Segoe UI", 11, "bold")).pack(
             anchor="w"
@@ -202,6 +227,11 @@ class AuroraApp(tk.Tk):
         except Exception:
             alerty = []
 
+        try:
+            dane_kp = aurora.parse_kp_index(aurora.fetch_json(aurora.KP_URL))
+        except Exception:
+            dane_kp = []
+
         self.after(
             0,
             self._aktualizuj,
@@ -213,6 +243,7 @@ class AuroraApp(tk.Tk):
             czas_obserwacji,
             czas_prognozy,
             alerty,
+            dane_kp,
         )
 
     def _blad(self, komunikat: str):
@@ -229,6 +260,7 @@ class AuroraApp(tk.Tk):
         czas_obserwacji: str,
         czas_prognozy: str,
         alerty: list,
+        dane_kp: list,
     ):
         if moj_numer != self._numer_zapytania:
             return  # przyszła odpowiedź na nieaktualne zapytanie - ignorujemy
@@ -243,6 +275,7 @@ class AuroraApp(tk.Tk):
         self.etykieta_prawdopodobienstwo.configure(text=f"{probability:.1f}%  —  {etykieta}")
 
         self._rysuj_wskaznik(probability)
+        self._rysuj_kp(dane_kp)
         self._rysuj_top(top_cells)
 
         if not alerty:
@@ -276,6 +309,57 @@ class AuroraApp(tk.Tk):
 
         self.figura_wskaznik.tight_layout()
         self.wykres_wskaznik.draw()
+
+    def _rysuj_kp(self, dane_kp: list):
+        self.figura_kp.clear()
+        ax = self.figura_kp.add_subplot(111)
+        ax.set_facecolor(KOLOR_TLA_WYKRESU)
+
+        if not dane_kp:
+            ax.text(0.5, 0.5, "Brak danych", ha="center", va="center", color=KOLOR_OPISOW)
+            ax.axis("off")
+            self.figura_kp.tight_layout()
+            self.wykres_kp.draw()
+            return
+
+        # ostatnie ~4 dni obserwacji (3h/wpis) + cala dostepna prognoza
+        obserwowane = [d for d in dane_kp if d["observed"]][-32:]
+        prognoza = [d for d in dane_kp if not d["observed"]]
+        wpisy = obserwowane + prognoza
+
+        x = list(range(len(wpisy)))
+        wartosci = [d["kp"] for d in wpisy]
+        kolory = [kolor_kp(d["kp"]) for d in wpisy]
+        przezroczystosc = [1.0 if d["observed"] else 0.45 for d in wpisy]
+
+        for xi, wartosc, kolor, alfa in zip(x, wartosci, kolory, przezroczystosc):
+            ax.bar(xi, wartosc, width=0.85, color=kolor, alpha=alfa)
+
+        granica = len(obserwowane) - 0.5
+        if prognoza:
+            ax.axvline(granica, color=KOLOR_OSI, linestyle="--", linewidth=1)
+            ax.text(
+                granica, 9.3, " prognoza →", fontsize=8, color=KOLOR_OPISOW, va="bottom", ha="left"
+            )
+
+        krok = max(1, len(wpisy) // 10)
+        ax.set_xticks(x[::krok])
+        ax.set_xticklabels(
+            [wpisy[i]["time"].strftime("%d.%m\n%Hh") for i in x[::krok]], fontsize=7
+        )
+
+        ax.set_ylim(0, 9.3)
+        ax.set_yticks([0, 3, 4, 5, 6, 7, 8, 9])
+        ax.tick_params(axis="both", colors=KOLOR_OPISOW, labelsize=8)
+        ax.grid(axis="y", color=KOLOR_SIATKI, linewidth=0.8)
+        ax.set_axisbelow(True)
+        for spina in ("top", "right"):
+            ax.spines[spina].set_visible(False)
+        ax.spines["left"].set_color(KOLOR_OSI)
+        ax.spines["bottom"].set_color(KOLOR_OSI)
+
+        self.figura_kp.tight_layout()
+        self.wykres_kp.draw()
 
     def _rysuj_top(self, top_cells: list):
         self.figura_top.clear()
