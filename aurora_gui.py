@@ -47,8 +47,8 @@ class AuroraApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Monitor zorzy polarnej - NOAA SWPC")
-        self.geometry("1100x980")
-        self.minsize(950, 850)
+        self.geometry("1450x900")
+        self.minsize(1250, 800)
 
         self._numer_zapytania = 0
         self._lokalizacje = []
@@ -107,43 +107,51 @@ class AuroraApp(tk.Tk):
         prawy = ttk.Frame(self, padding=10)
         prawy.pack(side="left", fill="both", expand=True)
 
-        self.etykieta_naglowek = ttk.Label(prawy, font=("Segoe UI", 16, "bold"))
+        kolumna_glowna = ttk.Frame(prawy)
+        kolumna_glowna.pack(side="left", fill="both", expand=True)
+
+        self.etykieta_naglowek = ttk.Label(kolumna_glowna, font=("Segoe UI", 16, "bold"))
         self.etykieta_naglowek.pack(anchor="w")
 
-        self.etykieta_czas = ttk.Label(prawy, font=("Segoe UI", 9), foreground=KOLOR_OPISOW)
+        self.etykieta_czas = ttk.Label(kolumna_glowna, font=("Segoe UI", 9), foreground=KOLOR_OPISOW)
         self.etykieta_czas.pack(anchor="w", pady=(0, 10))
 
-        ttk.Label(prawy, text="Prawdopodobieństwo zorzy w Twojej lokalizacji:", font=("Segoe UI", 11, "bold")).pack(
-            anchor="w"
-        )
-        self.etykieta_prawdopodobienstwo = ttk.Label(prawy, font=("Segoe UI", 20, "bold"))
+        ttk.Label(
+            kolumna_glowna, text="Prawdopodobieństwo zorzy w Twojej lokalizacji:", font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
+        self.etykieta_prawdopodobienstwo = ttk.Label(kolumna_glowna, font=("Segoe UI", 20, "bold"))
         self.etykieta_prawdopodobienstwo.pack(anchor="w")
 
-        self.figura_wskaznik = Figure(figsize=(7.5, 0.7), dpi=90)
+        self.figura_wskaznik = Figure(figsize=(6.3, 0.7), dpi=90)
         self.figura_wskaznik.patch.set_facecolor(KOLOR_TLA_WYKRESU)
-        self.wykres_wskaznik = FigureCanvasTkAgg(self.figura_wskaznik, master=prawy)
+        self.wykres_wskaznik = FigureCanvasTkAgg(self.figura_wskaznik, master=kolumna_glowna)
         self.wykres_wskaznik.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
         ttk.Label(
-            prawy, text="Indeks Kp (obserwowany + prognoza NOAA):", font=("Segoe UI", 11, "bold")
+            kolumna_glowna, text="Indeks Kp (obserwowany + prognoza NOAA):", font=("Segoe UI", 11, "bold")
         ).pack(anchor="w")
 
-        self.figura_kp = Figure(figsize=(7.5, 2.6), dpi=90)
+        self.figura_kp = Figure(figsize=(6.3, 2.6), dpi=90)
         self.figura_kp.patch.set_facecolor(KOLOR_TLA_WYKRESU)
-        self.wykres_kp = FigureCanvasTkAgg(self.figura_kp, master=prawy)
+        self.wykres_kp = FigureCanvasTkAgg(self.figura_kp, master=kolumna_glowna)
         self.wykres_kp.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
-        ttk.Label(prawy, text="Top komórki siatki z najwyższą auroą (świat):", font=("Segoe UI", 11, "bold")).pack(
-            anchor="w"
-        )
+        ttk.Label(
+            kolumna_glowna, text="Top komórki siatki z najwyższą auroą (świat):", font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
 
-        self.figura_top = Figure(figsize=(7.5, 2.6), dpi=90)
+        self.figura_top = Figure(figsize=(6.3, 2.6), dpi=90)
         self.figura_top.patch.set_facecolor(KOLOR_TLA_WYKRESU)
-        self.wykres_top = FigureCanvasTkAgg(self.figura_top, master=prawy)
+        self.wykres_top = FigureCanvasTkAgg(self.figura_top, master=kolumna_glowna)
         self.wykres_top.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
-        ttk.Label(prawy, text="Alerty zorzowe / geomagnetyczne:", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.etykieta_alerty = ttk.Label(prawy, justify="left", wraplength=650)
+        kolumna_alerty = ttk.Frame(prawy, padding=(20, 0, 0, 0))
+        kolumna_alerty.pack(side="left", fill="y", anchor="n")
+
+        ttk.Label(
+            kolumna_alerty, text="Alerty zorzowe / geomagnetyczne:", font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
+        self.etykieta_alerty = ttk.Label(kolumna_alerty, justify="left", wraplength=380)
         self.etykieta_alerty.pack(anchor="w", pady=(5, 0))
 
     def _szukaj_lokalizacji(self):
