@@ -72,14 +72,22 @@ class AuroraApp(tk.Tk):
         ttk.Button(lewy, text="Szukaj miasta", command=self._szukaj_lokalizacji).pack(fill="x")
 
         ramka_listy = ttk.Frame(lewy)
-        ramka_listy.pack(fill="both", expand=True, pady=(5, 10))
+        ramka_listy.pack(fill="x", pady=(5, 10))
 
         pasek = ttk.Scrollbar(ramka_listy, orient="vertical")
-        self.lista = tk.Listbox(ramka_listy, yscrollcommand=pasek.set, width=32, height=10)
+        self.lista = tk.Listbox(ramka_listy, yscrollcommand=pasek.set, width=32, height=5)
         pasek.config(command=self.lista.yview)
         pasek.pack(side="right", fill="y")
-        self.lista.pack(side="left", fill="both", expand=True)
+        self.lista.pack(side="left", fill="x", expand=True)
         self.lista.bind("<<ListboxSelect>>", self._wybrano_z_listy)
+
+        ttk.Separator(lewy, orient="horizontal").pack(fill="x", pady=(0, 10))
+
+        ttk.Label(lewy, text="Alerty zorzowe / geomagnetyczne:", font=("Segoe UI", 10, "bold")).pack(
+            anchor="w"
+        )
+        self.etykieta_alerty = ttk.Label(lewy, justify="left", wraplength=230, font=("Segoe UI", 9))
+        self.etykieta_alerty.pack(anchor="w", fill="both", expand=True, pady=(5, 10))
 
         ttk.Separator(lewy, orient="horizontal").pack(fill="x", pady=(0, 10))
 
@@ -145,14 +153,36 @@ class AuroraApp(tk.Tk):
         self.wykres_top = FigureCanvasTkAgg(self.figura_top, master=kolumna_glowna)
         self.wykres_top.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
-        kolumna_alerty = ttk.Frame(prawy, padding=(20, 0, 0, 0))
-        kolumna_alerty.pack(side="left", fill="y", anchor="n")
+        kolumna_boczna = ttk.Frame(prawy, padding=(20, 0, 0, 0))
+        kolumna_boczna.pack(side="left", fill="y", anchor="n")
 
         ttk.Label(
-            kolumna_alerty, text="Alerty zorzowe / geomagnetyczne:", font=("Segoe UI", 11, "bold")
+            kolumna_boczna, text="Bz (pole międzyplanetarne, nT):", font=("Segoe UI", 11, "bold")
         ).pack(anchor="w")
-        self.etykieta_alerty = ttk.Label(kolumna_alerty, justify="left", wraplength=380)
-        self.etykieta_alerty.pack(anchor="w", pady=(5, 0))
+
+        self.figura_bz = Figure(figsize=(4.2, 1.8), dpi=90)
+        self.figura_bz.patch.set_facecolor(KOLOR_TLA_WYKRESU)
+        self.wykres_bz = FigureCanvasTkAgg(self.figura_bz, master=kolumna_boczna)
+        self.wykres_bz.get_tk_widget().pack(anchor="w", pady=(5, 0))
+
+        ttk.Label(
+            kolumna_boczna,
+            text="Pomarańczowe pole: Bz południowy (sprzyja zorzy)",
+            font=("Segoe UI", 8),
+            foreground=KOLOR_OPISOW,
+        ).pack(anchor="w", pady=(0, 10))
+
+        self.etykieta_wiatr = ttk.Label(kolumna_boczna, justify="left", font=("Consolas", 9))
+        self.etykieta_wiatr.pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(
+            kolumna_boczna, text="Prędkość wiatru słonecznego (km/s):", font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
+
+        self.figura_wiatr = Figure(figsize=(4.2, 1.8), dpi=90)
+        self.figura_wiatr.patch.set_facecolor(KOLOR_TLA_WYKRESU)
+        self.wykres_wiatr = FigureCanvasTkAgg(self.figura_wiatr, master=kolumna_boczna)
+        self.wykres_wiatr.get_tk_widget().pack(anchor="w", pady=(5, 15))
 
     def _szukaj_lokalizacji(self):
         nazwa = self.wpis_miasta.get().strip()
@@ -240,6 +270,16 @@ class AuroraApp(tk.Tk):
         except Exception:
             dane_kp = []
 
+        try:
+            dane_bz = aurora.parse_solar_wind_mag(aurora.fetch_json(aurora.MAG_URL))
+        except Exception:
+            dane_bz = []
+
+        try:
+            dane_wiatr = aurora.parse_solar_wind_plasma(aurora.fetch_json(aurora.WIND_URL))
+        except Exception:
+            dane_wiatr = []
+
         self.after(
             0,
             self._aktualizuj,
@@ -252,6 +292,8 @@ class AuroraApp(tk.Tk):
             czas_prognozy,
             alerty,
             dane_kp,
+            dane_bz,
+            dane_wiatr,
         )
 
     def _blad(self, komunikat: str):
@@ -269,6 +311,8 @@ class AuroraApp(tk.Tk):
         czas_prognozy: str,
         alerty: list,
         dane_kp: list,
+        dane_bz: list,
+        dane_wiatr: list,
     ):
         if moj_numer != self._numer_zapytania:
             return  # przyszła odpowiedź na nieaktualne zapytanie - ignorujemy
@@ -285,6 +329,9 @@ class AuroraApp(tk.Tk):
         self._rysuj_wskaznik(probability)
         self._rysuj_kp(dane_kp)
         self._rysuj_top(top_cells)
+        self._rysuj_bz(dane_bz)
+        self._aktualizuj_tekst_wiatru(dane_bz, dane_wiatr)
+        self._rysuj_wiatr(dane_wiatr)
 
         if not alerty:
             self.etykieta_alerty.configure(text="Brak aktualnych alertów zorzowych lub geomagnetycznych.")
@@ -368,6 +415,90 @@ class AuroraApp(tk.Tk):
 
         self.figura_kp.tight_layout()
         self.wykres_kp.draw()
+
+    def _rysuj_bz(self, dane_bz: list):
+        self.figura_bz.clear()
+        ax = self.figura_bz.add_subplot(111)
+        ax.set_facecolor(KOLOR_TLA_WYKRESU)
+
+        if not dane_bz:
+            ax.text(0.5, 0.5, "Brak danych", ha="center", va="center", color=KOLOR_OPISOW)
+            ax.axis("off")
+            self.figura_bz.tight_layout()
+            self.wykres_bz.draw()
+            return
+
+        wpisy = dane_bz[-360:]  # ostatnie ~6h przy probkowaniu co 1 min
+        czasy = [w["time"] for w in wpisy]
+        bz = [w["bz"] for w in wpisy]
+
+        ax.axhline(0, color=KOLOR_OSI, linewidth=1)
+        ax.fill_between(czasy, bz, 0, where=[v < 0 for v in bz], color=KOLOR_KP_BURZA, alpha=0.5, interpolate=True)
+        ax.plot(czasy, bz, color=KOLOR_TEKSTU, linewidth=1)
+
+        krok = max(1, len(wpisy) // 5)
+        ax.set_xticks(czasy[::krok])
+        ax.set_xticklabels([c.strftime("%H:%M") for c in czasy[::krok]], fontsize=7)
+
+        ax.tick_params(axis="both", colors=KOLOR_OPISOW, labelsize=8)
+        ax.grid(axis="y", color=KOLOR_SIATKI, linewidth=0.8)
+        ax.set_axisbelow(True)
+        for spina in ("top", "right"):
+            ax.spines[spina].set_visible(False)
+        ax.spines["left"].set_color(KOLOR_OSI)
+        ax.spines["bottom"].set_color(KOLOR_OSI)
+
+        self.figura_bz.tight_layout()
+        self.wykres_bz.draw()
+
+    def _aktualizuj_tekst_wiatru(self, dane_bz: list, dane_wiatr: list):
+        if not dane_bz and not dane_wiatr:
+            self.etykieta_wiatr.configure(text="Brak danych o wietrze słonecznym.")
+            return
+
+        czesci = []
+        if dane_bz:
+            ostatni_bz = dane_bz[-1]
+            czesci.append(f"Bz: {ostatni_bz['bz']:+.1f} nT")
+            czesci.append(f"Bt: {ostatni_bz['bt']:.1f} nT")
+        if dane_wiatr:
+            ostatni_wiatr = dane_wiatr[-1]
+            czesci.append(f"Prędkość: {ostatni_wiatr['predkosc']:.0f} km/s")
+            czesci.append(f"Gęstość: {ostatni_wiatr['gestosc']:.1f} /cm³")
+        self.etykieta_wiatr.configure(text="Teraz — " + "   ".join(czesci))
+
+    def _rysuj_wiatr(self, dane_wiatr: list):
+        self.figura_wiatr.clear()
+        ax = self.figura_wiatr.add_subplot(111)
+        ax.set_facecolor(KOLOR_TLA_WYKRESU)
+
+        if not dane_wiatr:
+            ax.text(0.5, 0.5, "Brak danych", ha="center", va="center", color=KOLOR_OPISOW)
+            ax.axis("off")
+            self.figura_wiatr.tight_layout()
+            self.wykres_wiatr.draw()
+            return
+
+        wpisy = dane_wiatr[-360:]  # ostatnie ~6h przy probkowaniu co 1 min
+        czasy = [w["time"] for w in wpisy]
+        predkosc = [w["predkosc"] for w in wpisy]
+
+        ax.plot(czasy, predkosc, color=KOLOR_SLUPKA, linewidth=1.5)
+
+        krok = max(1, len(wpisy) // 5)
+        ax.set_xticks(czasy[::krok])
+        ax.set_xticklabels([c.strftime("%H:%M") for c in czasy[::krok]], fontsize=7)
+
+        ax.tick_params(axis="both", colors=KOLOR_OPISOW, labelsize=8)
+        ax.grid(axis="y", color=KOLOR_SIATKI, linewidth=0.8)
+        ax.set_axisbelow(True)
+        for spina in ("top", "right"):
+            ax.spines[spina].set_visible(False)
+        ax.spines["left"].set_color(KOLOR_OSI)
+        ax.spines["bottom"].set_color(KOLOR_OSI)
+
+        self.figura_wiatr.tight_layout()
+        self.wykres_wiatr.draw()
 
     def _rysuj_top(self, top_cells: list):
         self.figura_top.clear()

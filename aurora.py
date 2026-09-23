@@ -18,6 +18,8 @@ from urllib import error, request
 OVATION_URL = "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json"
 ALERTS_URL = "https://services.swpc.noaa.gov/products/alerts.json"
 KP_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"
+MAG_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json"
+WIND_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
 
 
 def fetch_json(url: str) -> Any:
@@ -294,6 +296,49 @@ def parse_kp_index(payload: Any) -> List[dict]:
                 "scale": wpis.get("noaa_scale"),
             }
         )
+    return wynik
+
+
+def _aktywne_wpisy(payload: Any) -> List[dict]:
+    """Zwraca wpisy z rtsw oznaczone jako 'active' (oficjalnie uzywane przez NOAA
+    zrodlo danych - w danym momencie moze byc kilka satelitow raportujacych,
+    ale tylko jedno jest aktywne), posortowane rosnaco wg czasu."""
+    if not isinstance(payload, list):
+        return []
+    wpisy = [w for w in payload if isinstance(w, dict) and w.get("active")]
+    wpisy.sort(key=lambda w: w["time_tag"])
+    return wpisy
+
+
+def parse_solar_wind_mag(payload: Any) -> List[dict]:
+    """Zwraca listę {'time': datetime, 'bz': float, 'bt': float} - skladowa Bz
+    (pole miedzyplanetarne, GSM) i calkowita sila pola z aktywnego satelity."""
+    wynik = []
+    for wpis in _aktywne_wpisy(payload):
+        try:
+            czas = datetime.fromisoformat(wpis["time_tag"]).replace(tzinfo=timezone.utc)
+            wynik.append({"time": czas, "bz": float(wpis["bz_gsm"]), "bt": float(wpis["bt"])})
+        except (KeyError, ValueError, TypeError):
+            continue
+    return wynik
+
+
+def parse_solar_wind_plasma(payload: Any) -> List[dict]:
+    """Zwraca listę {'time': datetime, 'predkosc': float, 'gestosc': float}
+    (predkosc w km/s, gestosc protonow w 1/cm3) z aktywnego satelity."""
+    wynik = []
+    for wpis in _aktywne_wpisy(payload):
+        try:
+            czas = datetime.fromisoformat(wpis["time_tag"]).replace(tzinfo=timezone.utc)
+            wynik.append(
+                {
+                    "time": czas,
+                    "predkosc": float(wpis["proton_speed"]),
+                    "gestosc": float(wpis["proton_density"]),
+                }
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
     return wynik
 
 
