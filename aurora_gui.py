@@ -96,11 +96,8 @@ class AuroraApp(tk.Tk):
         ramka_listy = ttk.Frame(lewy)
         ramka_listy.pack(fill="x", pady=(5, 10))
 
-        pasek = ttk.Scrollbar(ramka_listy, orient="vertical")
-        self.lista = tk.Listbox(ramka_listy, yscrollcommand=pasek.set, width=32, height=5)
-        pasek.config(command=self.lista.yview)
-        pasek.pack(side="right", fill="y")
-        self.lista.pack(side="left", fill="x", expand=True)
+        self.lista = tk.Listbox(ramka_listy, width=42, height=10)
+        self.lista.pack(fill="x")
         self.lista.bind("<<ListboxSelect>>", self._wybrano_z_listy)
 
         ttk.Separator(lewy, orient="horizontal").pack(fill="x", pady=(0, 10))
